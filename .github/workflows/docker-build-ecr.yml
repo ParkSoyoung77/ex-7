@@ -1,4 +1,4 @@
-name: Private EC2 via SSM and ECR
+name: Private EC2 via SSM and ECR (Dual Deployment)
 
 on:
   push:
@@ -6,14 +6,11 @@ on:
 
 jobs:
   build-and-deploy:
-    name: Build and Deploy to EC2(with SSM and ECR)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # SSM / ECR credentials configuration(AWS 자격 증명)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -22,40 +19,46 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr  # ECR Registry에 로그인하여 Docker 이미지를 푸시할 수 있도록 설정
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Build and Push Docker Image to ECR
-      - name: Build and Push Docker Image to ECR
+      # 1. FastAPI 이미지 빌드 및 푸시
+      - name: Build and Push FastAPI to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: "1.29.7-alpine"
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_FASTAPI }}
+          IMAGE_TAG: "latest"
         run: |
-          # Build the Docker Image
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          # Push the Docker image to ECR
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./fastapi
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      - name: Deploy to EC2 via SSM
-        # 배포 스텝에서도 이미지 주소를 완성하기 위해 env를 다시 선언합니다.
+      # 2. Nginx 이미지 빌드 및 푸시
+      - name: Build and Push Nginx to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: "1.29.7-alpine"
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NGINX }}
+          IMAGE_TAG: "latest"
         run: |
-          # SSM을 사용하여 EC2 인스턴스에 명령 실행
-          IMAGE_URL="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          EC2_INSTANCE_ID="${{ secrets.EC2_INSTANCE_ID }}"
-          
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # 3. EC2에 배포 (SSM)
+      - name: Deploy to EC2 via SSM
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          NGINX_REPO: ${{ secrets.ECR_REPOSITORY_NGINX }}
+          FASTAPI_REPO: ${{ secrets.ECR_REPOSITORY_FASTAPI }}
+        run: |
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --parameters '{"commands":[
-                "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
-                "sudo docker pull '$IMAGE_URL'",
-                "sudo docker stop nginx-container || true",
-                "sudo docker rm nginx-container || true",
-                "sudo docker run -d --name nginx-container -p 80:80 '$IMAGE_URL'"
+                "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin '$REGISTRY'",
+                "sudo docker pull '$REGISTRY'/'$FASTAPI_REPO':latest",
+                "sudo docker pull '$REGISTRY'/'$NGINX_REPO':latest",
+                "sudo docker stop nginx-container fastapi-container || true",
+                "sudo docker rm nginx-container fastapi-container || true",
+                "sudo docker run -d --name fastapi-container '$REGISTRY'/'$FASTAPI_REPO':latest",
+                "sudo docker run -d --name nginx-container -p 80:80 --link fastapi-container '$REGISTRY'/'$NGINX_REPO':latest"
               ]}' \
             --region ${{ secrets.AWS_REGION }}
