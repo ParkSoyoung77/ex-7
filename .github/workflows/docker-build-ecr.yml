@@ -1,0 +1,61 @@
+name: Private EC2 via SSM and ECR
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy to EC2(with SSM and ECR)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # SSM / ECR credentials configuration(AWS 자격 증명)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr  # ECR Registry에 로그인하여 Docker 이미지를 푸시할 수 있도록 설정
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build and Push Docker Image to ECR
+      - name: Build and Push Docker Image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: "1.29.7-alpine"
+        run: |
+          # Build the Docker Image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          # Push the Docker image to ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Deploy to EC2 via SSM
+        # 배포 스텝에서도 이미지 주소를 완성하기 위해 env를 다시 선언합니다.
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: "1.29.7-alpine"
+        run: |
+          # SSM을 사용하여 EC2 인스턴스에 명령 실행
+          IMAGE_URL="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          EC2_INSTANCE_ID="${{ secrets.EC2_INSTANCE_ID }}"
+          
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters '{"commands":[
+                "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
+                "sudo docker pull '$IMAGE_URL'",
+                "sudo docker stop nginx-container || true",
+                "sudo docker rm nginx-container || true",
+                "sudo docker run -d --name nginx-container -p 80:80 '$IMAGE_URL'"
+              ]}' \
+            --region ${{ secrets.AWS_REGION }}
