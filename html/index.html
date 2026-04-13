@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SY's S3 Static Website</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 50px; 
+            background: linear-gradient(135deg, #ff9900 0%, #ffcc80 100%); /* AWS 상징 주황색 배경 */
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
+            max-width: 500px;
+        }
+        h1 { color: #232f3e; margin-bottom: 10px; }
+        p { color: #555; line-height: 1.6; }
+        .status-badge {
+            display: inline-block;
+            background-color: #4caf50;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>☁️ Amazon S3 호스팅 </h1>
+        <p>SY님의 웹사이트가 <strong>S3 Bucket</strong>을 통해<br>성공적으로 호스팅되고 있습니다.</p>
+        <div class="status-badge">Website Online</div>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+        <p style="font-size: 0.8em; color: #888;">Powered by AWS S3 & GitHub Actions</p>
+    </div>
+</body>
+</html>
